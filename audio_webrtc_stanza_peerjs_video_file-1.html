@@ -1,0 +1,1267 @@
+<!DOCTYPE html>
+<html lang="it">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>Chiamata WebRTC · stanza, video e file</title>
+  <script src="https://unpkg.com/peerjs@1.5.5/dist/peerjs.min.js"></script>
+  <style>
+    /* ── Tokens ── */
+    :root {
+      --bg:       #f5f7fa;
+      --surface:  #ffffff;
+      --surface2: #f0f2f5;
+      --border:   #e2e6ea;
+      --text:     #111827;
+      --muted:    #6b7280;
+      --accent:   #2563eb;
+      --accent-s: #1d4ed8;
+      --accent-bg:#eff6ff;
+      --ok:       #059669;
+      --ok-bg:    #ecfdf5;
+      --bad:      #dc2626;
+      --bad-bg:   #fef2f2;
+      --warn:     #d97706;
+      --warn-bg:  #fffbeb;
+      --radius:   14px;
+      --radius-sm:9px;
+      --shadow:   0 1px 3px rgba(0,0,0,.08), 0 4px 16px rgba(0,0,0,.06);
+      --font: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif;
+    }
+    body.dark {
+      --bg:       #0f1117;
+      --surface:  #1a1d27;
+      --surface2: #222535;
+      --border:   #2e3347;
+      --text:     #e8eaf0;
+      --muted:    #8891a8;
+      --accent:   #4f8aff;
+      --accent-s: #3b72e8;
+      --accent-bg:#1a2540;
+      --ok:       #10b981;
+      --ok-bg:    #052e1c;
+      --bad:      #f87171;
+      --bad-bg:   #2d1010;
+      --warn:     #fbbf24;
+      --warn-bg:  #2d1f00;
+      --shadow:   0 1px 3px rgba(0,0,0,.3), 0 4px 16px rgba(0,0,0,.25);
+    }
+
+    /* ── Reset ── */
+    *, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
+    body {
+      font-family: var(--font);
+      font-size: 15px;
+      line-height: 1.6;
+      background: var(--bg);
+      color: var(--text);
+      min-height: 100dvh;
+      transition: background .25s, color .25s;
+    }
+
+    /* ── App shell ── */
+    .app {
+      max-width: 560px;
+      margin: 0 auto;
+      padding: 16px 14px 40px;
+    }
+    @media (min-width: 760px) {
+      .app { max-width: 900px; padding: 28px 24px 60px; }
+    }
+
+    /* ── Header ── */
+    .header {
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      margin-bottom: 22px;
+      gap: 12px;
+    }
+    .header-left { display: flex; align-items: center; gap: 12px; }
+    .logo {
+      width: 40px; height: 40px;
+      background: var(--accent);
+      border-radius: 10px;
+      display: flex; align-items: center; justify-content: center;
+      flex-shrink: 0;
+    }
+    .logo svg { width: 22px; height: 22px; fill: white; }
+    .app-title { font-size: 1.15rem; font-weight: 700; letter-spacing: -.02em; }
+    .app-sub   { font-size: .78rem; color: var(--muted); margin-top: 1px; }
+
+    /* ── Theme toggle ── */
+    .theme-btn {
+      background: var(--surface2);
+      border: 1px solid var(--border);
+      border-radius: 999px;
+      padding: 6px 13px;
+      font-size: .8rem;
+      font-weight: 500;
+      color: var(--muted);
+      cursor: pointer;
+      transition: background .2s, color .2s;
+      white-space: nowrap;
+    }
+    .theme-btn:hover { background: var(--border); color: var(--text); }
+
+    /* ── Status bar (always visible) ── */
+    .statusbar {
+      display: flex;
+      align-items: center;
+      gap: 8px;
+      padding: 10px 14px;
+      background: var(--surface);
+      border: 1px solid var(--border);
+      border-radius: var(--radius);
+      margin-bottom: 14px;
+      box-shadow: var(--shadow);
+      flex-wrap: wrap;
+    }
+    .sb-dot {
+      width: 8px; height: 8px; border-radius: 50%; flex-shrink: 0;
+      background: var(--bad); transition: background .3s;
+    }
+    .sb-dot.ok   { background: var(--ok); }
+    .sb-dot.warn { background: var(--warn); }
+    .sb-text { font-size: .82rem; color: var(--muted); flex: 1; min-width: 0; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+    .sb-text.ok   { color: var(--ok);   }
+    .sb-text.bad  { color: var(--bad);  }
+    .sb-text.warn { color: var(--warn); }
+    .sb-pills { display: flex; gap: 6px; flex-wrap: wrap; margin-left: auto; }
+    .sb-pill {
+      display: inline-flex; align-items: center; gap: 5px;
+      font-size: .73rem; color: var(--muted);
+      background: var(--surface2); border: 1px solid var(--border);
+      border-radius: 999px; padding: 2px 8px;
+    }
+    .sb-pill .dot {
+      width: 6px; height: 6px; border-radius: 50%;
+      background: var(--bad); flex-shrink: 0;
+    }
+    .sb-pill .dot.ok   { background: var(--ok); }
+    .sb-pill .dot.warn { background: var(--warn); }
+
+    /* ── Tabs ── */
+    .tabs {
+      display: flex;
+      gap: 0;
+      background: var(--surface);
+      border: 1px solid var(--border);
+      border-radius: var(--radius);
+      padding: 4px;
+      margin-bottom: 14px;
+      box-shadow: var(--shadow);
+      overflow-x: auto;
+      scrollbar-width: none;
+    }
+    .tabs::-webkit-scrollbar { display: none; }
+    .tab {
+      flex: 1;
+      min-width: 0;
+      display: flex;
+      flex-direction: column;
+      align-items: center;
+      gap: 2px;
+      padding: 9px 8px 8px;
+      border-radius: 10px;
+      border: none;
+      background: transparent;
+      color: var(--muted);
+      font-size: .72rem;
+      font-weight: 500;
+      font-family: var(--font);
+      cursor: pointer;
+      transition: background .18s, color .18s;
+      white-space: nowrap;
+    }
+    .tab .tab-icon { font-size: 1.2rem; line-height: 1; }
+    .tab:hover { background: var(--surface2); color: var(--text); }
+    .tab.active {
+      background: var(--accent-bg);
+      color: var(--accent);
+      font-weight: 600;
+    }
+    @media (min-width: 760px) {
+      .tab { flex-direction: row; gap: 7px; padding: 10px 16px; font-size: .85rem; }
+      .tab .tab-icon { font-size: 1rem; }
+    }
+
+    /* ── Panels ── */
+    .panel { display: none; }
+    .panel.active { display: block; }
+
+    /* ── Card ── */
+    .card {
+      background: var(--surface);
+      border: 1px solid var(--border);
+      border-radius: var(--radius);
+      padding: 18px;
+      box-shadow: var(--shadow);
+      margin-bottom: 12px;
+    }
+    .card-title {
+      font-size: .72rem;
+      font-weight: 600;
+      letter-spacing: .08em;
+      text-transform: uppercase;
+      color: var(--muted);
+      margin-bottom: 14px;
+    }
+
+    /* ── Info banner ── */
+    .info-banner {
+      background: var(--warn-bg);
+      border: 1px solid var(--warn);
+      border-radius: var(--radius-sm);
+      padding: 12px 14px;
+      font-size: .82rem;
+      color: var(--warn);
+      line-height: 1.55;
+      margin-bottom: 12px;
+    }
+    .info-banner b { font-weight: 600; }
+
+    /* ── Form controls ── */
+    label {
+      display: block;
+      font-size: .78rem;
+      font-weight: 600;
+      color: var(--muted);
+      margin-bottom: 6px;
+    }
+    input[type="text"], input[type="file"] {
+      width: 100%;
+      border-radius: var(--radius-sm);
+      border: 1.5px solid var(--border);
+      background: var(--surface2);
+      color: var(--text);
+      padding: 10px 13px;
+      font-size: .95rem;
+      font-family: var(--font);
+      outline: none;
+      transition: border-color .18s, box-shadow .18s;
+    }
+    input[type="text"]:focus {
+      border-color: var(--accent);
+      box-shadow: 0 0 0 3px color-mix(in srgb, var(--accent) 15%, transparent);
+    }
+    input[type="file"] { cursor: pointer; }
+
+    /* ── Buttons ── */
+    .btn-row { display: flex; flex-wrap: wrap; gap: 8px; margin-top: 12px; }
+    button {
+      display: inline-flex; align-items: center; gap: 6px;
+      border: none; border-radius: var(--radius-sm);
+      padding: 9px 16px;
+      font-size: .85rem; font-weight: 600; font-family: var(--font);
+      cursor: pointer;
+      transition: background .18s, opacity .18s, transform .1s;
+      white-space: nowrap;
+    }
+    button:active:not(:disabled) { transform: scale(.97); }
+    button:disabled { opacity: .4; cursor: not-allowed; }
+
+    .btn-primary  { background: var(--accent); color: white; }
+    .btn-primary:hover:not(:disabled) { background: var(--accent-s); }
+    .btn-secondary {
+      background: var(--surface2); color: var(--text);
+      border: 1.5px solid var(--border);
+    }
+    .btn-secondary:hover:not(:disabled) { background: var(--border); }
+    .btn-danger   { background: var(--bad); color: white; }
+    .btn-danger:hover:not(:disabled) { background: #b91c1c; }
+    .btn-icon     { padding: 9px 14px; }
+
+    /* ── Audio ── */
+    audio {
+      width: 100%; height: 36px;
+      border-radius: var(--radius-sm);
+      margin-top: 10px;
+      accent-color: var(--accent);
+    }
+
+    /* ── Invite link ── */
+    .hidden { display: none !important; }
+    .invite-box {
+      display: flex; align-items: center; gap: 8px;
+      margin-top: 10px;
+      background: var(--accent-bg);
+      border: 1px solid var(--accent);
+      border-radius: var(--radius-sm);
+      padding: 10px 13px;
+      flex-wrap: wrap;
+    }
+    .invite-box span {
+      color: var(--accent); font-size: .83rem;
+      word-break: break-all; flex: 1;
+      font-family: monospace;
+    }
+
+    /* ── Status log ── */
+    .log {
+      background: var(--surface2);
+      border: 1px solid var(--border);
+      border-radius: var(--radius-sm);
+      padding: 12px 14px;
+      font-size: .82rem;
+      color: var(--muted);
+      white-space: pre-wrap;
+      line-height: 1.6;
+      min-height: 60px;
+      transition: background .2s, border-color .2s, color .2s;
+    }
+    .log.ok   { background: var(--ok-bg);   border-color: var(--ok);   color: var(--ok);   }
+    .log.bad  { background: var(--bad-bg);  border-color: var(--bad);  color: var(--bad);  }
+    .log.warn { background: var(--warn-bg); border-color: var(--warn); color: var(--warn); }
+
+    /* ── Video grid ── */
+    .video-grid {
+      display: grid;
+      grid-template-columns: 1fr 1fr;
+      gap: 12px;
+      margin-top: 12px;
+    }
+    @media (max-width: 500px) { .video-grid { grid-template-columns: 1fr; } }
+    .video-box {
+      position: relative;
+      background: #080c14;
+      border-radius: var(--radius-sm);
+      overflow: hidden;
+      aspect-ratio: 16/9;
+      border: 1px solid var(--border);
+    }
+    video {
+      width: 100%; height: 100%;
+      display: block; object-fit: cover;
+    }
+    .video-lbl {
+      position: absolute; bottom: 8px; left: 8px;
+      background: rgba(0,0,0,.6);
+      backdrop-filter: blur(6px);
+      color: white; font-size: .72rem; font-weight: 600;
+      padding: 2px 9px; border-radius: 999px;
+      letter-spacing: .04em; text-transform: uppercase;
+    }
+    .videoPlaceholder {
+      position: absolute; inset: 0;
+      display: flex; align-items: center; justify-content: center;
+      color: #4a5568; font-size: .82rem; text-align: center; padding: 12px;
+      pointer-events: none;
+    }
+
+    /* ── Fullscreen button ── */
+    .fs-btn {
+      position: absolute; top: 8px; right: 8px;
+      background: rgba(0,0,0,.55);
+      backdrop-filter: blur(6px);
+      border: none; border-radius: 7px;
+      color: white; font-size: .9rem;
+      width: 30px; height: 30px;
+      display: flex; align-items: center; justify-content: center;
+      cursor: pointer; z-index: 10;
+      opacity: 0;
+      transition: opacity .2s;
+      padding: 0;
+      font-family: var(--font);
+    }
+    .video-box:hover .fs-btn,
+    .video-box:focus-within .fs-btn { opacity: 1; }
+    @media (hover: none) { .fs-btn { opacity: .75; } }
+
+    /* ── Fullscreen state ── */
+    .video-box:fullscreen,
+    .video-box:-webkit-full-screen {
+      border-radius: 0 !important;
+      border: none !important;
+      aspect-ratio: unset !important;
+      width: 100vw !important; height: 100vh !important;
+      background: #000 !important;
+    }
+    .video-box:fullscreen video,
+    .video-box:-webkit-full-screen video {
+      width: 100% !important; height: 100% !important;
+      object-fit: contain !important;
+    }
+    .video-box:fullscreen .fs-btn,
+    .video-box:-webkit-full-screen .fs-btn {
+      opacity: 1 !important;
+      top: 18px !important; right: 18px !important;
+      width: 42px !important; height: 42px !important;
+      font-size: 1.2rem !important;
+      border-radius: 10px !important;
+    }
+    .video-box:fullscreen .video-lbl,
+    .video-box:-webkit-full-screen .video-lbl {
+      bottom: 20px !important; left: 20px !important;
+      font-size: .9rem !important; padding: 5px 16px !important;
+    }
+    .video-box:fullscreen .videoPlaceholder,
+    .video-box:-webkit-full-screen .videoPlaceholder { display: none !important; }
+
+    /* ── Progress ── */
+    progress {
+      width: 100%; height: 5px;
+      border-radius: 999px;
+      accent-color: var(--accent);
+      margin-top: 6px;
+    }
+
+    /* ── File rows ── */
+    .file-row {
+      background: var(--surface2);
+      border: 1px solid var(--border);
+      border-radius: var(--radius-sm);
+      padding: 10px 13px;
+      margin-top: 8px;
+      display: flex; flex-direction: column; gap: 3px;
+    }
+    a.download {
+      color: var(--accent); font-size: .88rem; font-weight: 600; text-decoration: none;
+    }
+    a.download:hover { text-decoration: underline; }
+    .small { font-size: .78rem; color: var(--muted); margin-top: 4px; }
+    .small b { color: var(--text); font-weight: 600; }
+
+    /* ── Desktop two-col layout ── */
+    @media (min-width: 760px) {
+      .two-col { display: grid; grid-template-columns: 1fr 1fr; gap: 12px; align-items: start; }
+      .two-col > .card { margin-bottom: 0; }
+    }
+  </style>
+</head>
+<body class="dark">
+  <div class="app">
+
+    <!-- Header -->
+    <div class="header">
+      <div class="header-left">
+        <div class="logo">
+          <svg viewBox="0 0 24 24"><path d="M6.62 10.79a15.053 15.053 0 0 0 6.59 6.59l2.2-2.2c.27-.27.67-.36 1.02-.24 1.12.37 2.33.57 3.57.57.55 0 1 .45 1 1V20c0 .55-.45 1-1 1C10.61 21 3 13.39 3 4c0-.55.45-1 1-1h3.5c.55 0 1 .45 1 1 0 1.25.2 2.45.57 3.57.11.35.03.74-.24 1.02l-2.21 2.2z"/></svg>
+        </div>
+        <div>
+          <div class="app-title">Stanza WebRTC</div>
+          <div class="app-sub">Audio · Video · File — peer-to-peer</div>
+        </div>
+      </div>
+      <button id="themeBtn" class="theme-btn" type="button">☀️ Chiaro</button>
+    </div>
+
+    <!-- Status bar globale -->
+    <div class="statusbar">
+      <span class="sb-dot" id="sbDot"></span>
+      <span class="sb-text" id="status">Pronto. Scegli un nome stanza e crea o entra.</span>
+      <div class="sb-pills">
+        <span class="sb-pill"><span id="micDot" class="dot"></span><span id="micState">Mic</span></span>
+        <span class="sb-pill"><span id="wakeDot" class="dot"></span><span id="wakeState">Wake</span></span>
+        <span class="sb-pill"><span id="visDot" class="dot ok"></span><span id="visState">Vis</span></span>
+        <span class="sb-pill"><span id="fileDot" class="dot"></span><span id="fileState">File</span></span>
+      </div>
+    </div>
+
+    <!-- Tabs -->
+    <div class="tabs" role="tablist">
+      <button class="tab active" data-tab="stanza" role="tab" type="button">
+        <span class="tab-icon">🔑</span><span>Stanza</span>
+      </button>
+      <button class="tab" data-tab="chiamata" role="tab" type="button">
+        <span class="tab-icon">📞</span><span>Chiamata</span>
+      </button>
+      <button class="tab" data-tab="video" role="tab" type="button">
+        <span class="tab-icon">📹</span><span>Video</span>
+      </button>
+      <button class="tab" data-tab="file" role="tab" type="button">
+        <span class="tab-icon">📎</span><span>File</span>
+      </button>
+      <button class="tab" data-tab="info" role="tab" type="button">
+        <span class="tab-icon">ℹ️</span><span>Info</span>
+      </button>
+    </div>
+
+    <!-- ── Panel: Stanza ── -->
+    <div class="panel active" id="panel-stanza">
+      <div class="card">
+        <div class="card-title">Nome stanza</div>
+        <label for="roomName">Scegli un identificativo condiviso</label>
+        <input id="roomName" type="text" value="giorgio" autocomplete="off" placeholder="es. giorgio, lezione1, prova" />
+        <div class="btn-row">
+          <button id="hostBtn" class="btn-primary" type="button">✚ Crea stanza</button>
+          <button id="joinBtn" class="btn-primary" type="button">→ Entra</button>
+          <button id="copyLinkBtn" class="btn-secondary" type="button">🔗 Copia link</button>
+        </div>
+        <p class="small" style="margin-top:12px">Il <b>primo utente</b> preme Crea stanza. Il <b>secondo</b> usa lo stesso nome (o il link invito) e preme Entra.</p>
+      </div>
+
+      <div id="inviteArea" class="hidden">
+        <div class="invite-box">
+          <span id="inviteLink"></span>
+        </div>
+      </div>
+    </div>
+
+    <!-- ── Panel: Chiamata ── -->
+    <div class="panel" id="panel-chiamata">
+      <div class="two-col">
+        <div class="card">
+          <div class="card-title">Controlli</div>
+          <div class="btn-row">
+            <button id="muteBtn" class="btn-secondary" type="button" disabled>🎙 Muto</button>
+            <button id="wakeBtn" class="btn-secondary" type="button">☀️ Anti-standby</button>
+          </div>
+          <div class="btn-row">
+            <button id="hangBtn" class="btn-danger" type="button" disabled>✕ Chiudi chiamata</button>
+          </div>
+          <audio id="remoteAudio" autoplay playsinline controls></audio>
+        </div>
+        <div class="card">
+          <div class="card-title">Stato connessione</div>
+          <div id="callStatus" class="log">In attesa di connessione…</div>
+        </div>
+      </div>
+    </div>
+
+    <!-- ── Panel: Video ── -->
+    <div class="panel" id="panel-video">
+      <div class="card">
+        <div class="card-title">Videocamera</div>
+        <div class="btn-row">
+          <button id="videoBtn" class="btn-primary" type="button" disabled>▷ Attiva video</button>
+          <button id="cameraBtn" class="btn-secondary" type="button" disabled>⇄ Cambia camera</button>
+        </div>
+        <p class="small">Attiva o disattiva durante la chiamata. Su smartphone alterna camera frontale/posteriore.</p>
+        <div class="video-grid">
+          <div class="video-box" id="localVideoBox">
+            <video id="localVideo" autoplay playsinline muted></video>
+            <div class="video-lbl">Tu</div>
+            <div id="localPlaceholder" class="videoPlaceholder">Video locale disattivato</div>
+            <button class="fs-btn" id="fsLocalBtn" title="Schermo intero" type="button">⛶</button>
+          </div>
+          <div class="video-box" id="remoteVideoBox">
+            <video id="remoteVideo" autoplay playsinline></video>
+            <div class="video-lbl">Remoto</div>
+            <div id="remotePlaceholder" class="videoPlaceholder">In attesa del video remoto</div>
+            <button class="fs-btn" id="fsRemoteBtn" title="Schermo intero" type="button">⛶</button>
+          </div>
+        </div>
+      </div>
+    </div>
+
+    <!-- ── Panel: File ── -->
+    <div class="panel" id="panel-file">
+      <div class="card">
+        <div class="card-title">Invia un file</div>
+        <label for="fileInput">Scegli il file da inviare</label>
+        <input id="fileInput" type="file" />
+        <div class="btn-row">
+          <button id="sendFileBtn" class="btn-primary" type="button" disabled>↑ Invia file</button>
+        </div>
+        <p class="small">Funziona meglio con file piccoli o medi. File grandi possono essere lenti o interrompersi se cade la connessione.</p>
+        <div id="fileStatus" class="log" style="margin-top:12px">Nessun file in trasferimento.</div>
+      </div>
+      <div id="receivedFiles"></div>
+    </div>
+
+    <!-- ── Panel: Info ── -->
+    <div class="panel" id="panel-info">
+      <div class="info-banner">
+        ⚠️ Pagina web ≠ app nativa. Se lo schermo si spegne o passi ad altra app, Android/Chrome può sospendere microfono, camera o connessione. L'anti-standby aiuta ma non garantisce il funzionamento in background.
+      </div>
+      <div class="card">
+        <div class="card-title">Istruzioni rapide</div>
+        <ol style="padding-left:18px; font-size:.88rem; line-height:2; color:var(--text)">
+          <li>Entrambi aprono questa pagina</li>
+          <li>Usano lo stesso nome stanza</li>
+          <li>Il primo preme <b>Crea stanza</b></li>
+          <li>Il secondo preme <b>Entra</b></li>
+          <li>Video e invio file sono opzionali</li>
+        </ol>
+      </div>
+      <div class="card">
+        <div class="card-title">Consigli su Android</div>
+        <p style="font-size:.85rem; line-height:1.7; color:var(--muted)">
+          Lascia la pagina in primo piano durante la chiamata. Premi <b style="color:var(--text)">Anti-standby</b>. Se possibile, aumenta il timeout schermo del telefono. Per una chiamata stabile in background servirebbe un'app Android vera; da solo HTML il controllo non è garantito.
+        </p>
+      </div>
+    </div>
+
+  </div><!-- /.app -->
+
+<script>
+
+(function(){
+  const $ = (id) => document.getElementById(id);
+  const roomInput = $('roomName');
+  const hostBtn = $('hostBtn');
+  const joinBtn = $('joinBtn');
+  const copyLinkBtn = $('copyLinkBtn');
+  const muteBtn = $('muteBtn');
+  const wakeBtn = $('wakeBtn');
+  const hangBtn = $('hangBtn');
+  const themeBtn = $('themeBtn');
+  const videoBtn = $('videoBtn');
+  const cameraBtn = $('cameraBtn');
+  const sendFileBtn = $('sendFileBtn');
+  const fileInput = $('fileInput');
+  const statusEl = $('status');
+  const fileStatus = $('fileStatus');
+  const receivedFiles = $('receivedFiles');
+  const remoteAudio = $('remoteAudio');
+  const localVideo = $('localVideo');
+  const remoteVideo = $('remoteVideo');
+  const localPlaceholder = $('localPlaceholder');
+  const remotePlaceholder = $('remotePlaceholder');
+  const inviteArea = $('inviteArea');
+  const inviteLink = $('inviteLink');
+  const micDot = $('micDot'), micState = $('micState');
+  const wakeDot = $('wakeDot'), wakeState = $('wakeState');
+  const visDot = $('visDot'), visState = $('visState');
+  const fileDot = $('fileDot'), fileState = $('fileState');
+
+  let peer = null;
+  let localStream = null;
+  let cameraStream = null;
+  let blankVideoStream = null;
+  let currentCall = null;
+  let dataConn = null;
+  let role = null;
+  let room = null;
+  let muted = false;
+  let videoEnabled = false;
+  let facingMode = 'user';
+  let wakeLock = null;
+  let wantWakeLock = true;
+  let healthTimer = null;
+  let lastHealth = '';
+  let receiving = new Map();
+  const CHUNK_SIZE = 64 * 1024;
+
+  const params = new URLSearchParams(location.search);
+  const paramRoom = params.get('stanza') || params.get('room');
+  if (paramRoom) roomInput.value = paramRoom;
+
+  function setStatus(msg, cls='') {
+    statusEl.className = 'status ' + cls;
+    statusEl.textContent = msg;
+  }
+
+  function appendStatus(msg) {
+    const old = statusEl.textContent || '';
+    statusEl.textContent = old + '\n' + msg;
+  }
+
+  function setFileStatus(msg, cls='') {
+    fileStatus.className = 'status ' + cls;
+    fileStatus.textContent = msg;
+  }
+
+  function appendFileStatus(msg) {
+    const old = fileStatus.textContent || '';
+    fileStatus.textContent = old + '\n' + msg;
+  }
+
+  function setDot(dot, textEl, state, text) {
+    dot.className = 'dot' + (state === 'ok' ? ' okdot' : state === 'warn' ? ' warndot' : '');
+    textEl.textContent = text;
+  }
+
+  function normalizeRoom(raw) {
+    return String(raw || '')
+      .trim().toLowerCase().normalize('NFD').replace(/[\u0300-\u036f]/g, '')
+      .replace(/[^a-z0-9_-]/g, '-').replace(/-+/g, '-').slice(0, 40) || 'giorgio';
+  }
+
+  function hostId(r) { return 'gs-audio-video-room-' + r; }
+
+  async function copyText(text) {
+    try { await navigator.clipboard.writeText(text); return true; }
+    catch(e) { return false; }
+  }
+
+  function currentInviteLink() {
+    const r = normalizeRoom(roomInput.value);
+    try {
+      const url = new URL(location.href);
+      url.search = ''; url.hash = '';
+      url.searchParams.set('stanza', r);
+      return url.toString();
+    } catch(e) { return 'Apri lo stesso file e inserisci questa stanza: ' + r; }
+  }
+
+  async function requestWakeLock() {
+    wantWakeLock = true;
+    if (!('wakeLock' in navigator)) {
+      setDot(wakeDot, wakeState, 'warn', 'Anti-standby non supportato');
+      appendStatus('Questo browser non supporta Screen Wake Lock. Imposta manualmente il timeout schermo più lungo possibile.');
+      return false;
+    }
+    if (document.visibilityState !== 'visible') return false;
+    try {
+      wakeLock = await navigator.wakeLock.request('screen');
+      setDot(wakeDot, wakeState, 'ok', 'Anti-standby attivo');
+      wakeBtn.textContent = 'Anti-standby attivo';
+      wakeLock.addEventListener('release', () => {
+        wakeLock = null;
+        setDot(wakeDot, wakeState, 'warn', 'Anti-standby sospeso');
+        wakeBtn.textContent = 'Riattiva anti-standby';
+      });
+      return true;
+    } catch(e) {
+      setDot(wakeDot, wakeState, 'warn', 'Anti-standby non attivato');
+      appendStatus('Non riesco ad attivare anti-standby: ' + (e.message || e));
+      return false;
+    }
+  }
+
+  function createBlankVideoTrack() {
+    if (blankVideoStream) return blankVideoStream.getVideoTracks()[0];
+    const canvas = document.createElement('canvas');
+    canvas.width = 640; canvas.height = 360;
+    const ctx = canvas.getContext('2d');
+    function draw() {
+      ctx.fillStyle = '#020617'; ctx.fillRect(0, 0, canvas.width, canvas.height);
+      ctx.fillStyle = '#94a3b8'; ctx.font = '28px system-ui'; ctx.textAlign = 'center';
+      ctx.fillText('Video disattivato', canvas.width / 2, canvas.height / 2);
+      setTimeout(draw, 1000);
+    }
+    draw();
+    blankVideoStream = canvas.captureStream(1);
+    return blankVideoStream.getVideoTracks()[0];
+  }
+
+  async function getLocalMediaBase() {
+    if (localStream) return localStream;
+    if (!navigator.mediaDevices || !navigator.mediaDevices.getUserMedia) {
+      throw new Error('Questo browser non espone getUserMedia. Prova Chrome/Edge aggiornato e pagina HTTPS.');
+    }
+    const audioStream = await navigator.mediaDevices.getUserMedia({
+      audio: { echoCancellation: true, noiseSuppression: true, autoGainControl: true },
+      video: false
+    });
+    const audioTrack = audioStream.getAudioTracks()[0];
+    const blankTrack = createBlankVideoTrack();
+    localStream = new MediaStream([audioTrack, blankTrack]);
+    muteBtn.disabled = false;
+    videoBtn.disabled = false;
+    cameraBtn.disabled = true;
+    setDot(micDot, micState, 'ok', 'Microfono attivo');
+    audioTrack.onended = () => {
+      setDot(micDot, micState, 'warn', 'Microfono interrotto dal sistema');
+      appendStatus('Il microfono è stato interrotto dal sistema o dal browser. Riapri la pagina in primo piano e rientra nella stanza.');
+    };
+    audioTrack.onmute = () => setDot(micDot, micState, 'warn', 'Microfono sospeso');
+    audioTrack.onunmute = () => setDot(micDot, micState, 'ok', 'Microfono attivo');
+    await requestWakeLock();
+    return localStream;
+  }
+
+  function getVideoSender() {
+    if (!currentCall || !currentCall.peerConnection) return null;
+    return currentCall.peerConnection.getSenders().find(s => s.track && s.track.kind === 'video');
+  }
+
+  async function replaceOutgoingVideoTrack(track) {
+    const sender = getVideoSender();
+    if (sender) await sender.replaceTrack(track);
+    const old = localStream.getVideoTracks()[0];
+    if (old && old !== track) localStream.removeTrack(old);
+    if (!localStream.getVideoTracks().includes(track)) localStream.addTrack(track);
+  }
+
+  async function startCamera() {
+    if (!currentCall) {
+      setStatus('Prima avvia la chiamata, poi attiva il video.', 'warn');
+      return;
+    }
+    try {
+      const constraints = { video: { facingMode: { ideal: facingMode }, width: { ideal: 1280 }, height: { ideal: 720 } }, audio: false };
+      cameraStream = await navigator.mediaDevices.getUserMedia(constraints);
+      const cameraTrack = cameraStream.getVideoTracks()[0];
+      await replaceOutgoingVideoTrack(cameraTrack);
+      localVideo.srcObject = new MediaStream([cameraTrack]);
+      localPlaceholder.classList.add('hidden');
+      videoEnabled = true;
+      videoBtn.textContent = 'Disattiva video';
+      cameraBtn.disabled = false;
+      appendStatus('Video attivato.');
+      await requestWakeLock();
+    } catch(e) {
+      setStatus('Non riesco ad attivare la videocamera: ' + (e.message || e), 'bad');
+    }
+  }
+
+  async function stopCamera() {
+    try {
+      if (cameraStream) cameraStream.getTracks().forEach(t => t.stop());
+      cameraStream = null;
+      const blank = createBlankVideoTrack();
+      await replaceOutgoingVideoTrack(blank);
+      localVideo.srcObject = null;
+      localPlaceholder.classList.remove('hidden');
+      videoEnabled = false;
+      videoBtn.textContent = 'Attiva video';
+      cameraBtn.disabled = true;
+      appendStatus('Video disattivato.');
+    } catch(e) {
+      appendStatus('Non sono riuscito a disattivare correttamente il video: ' + (e.message || e));
+    }
+  }
+
+  async function switchCamera() {
+    if (!videoEnabled) return;
+    facingMode = facingMode === 'user' ? 'environment' : 'user';
+    appendStatus('Cambio fotocamera: ' + (facingMode === 'user' ? 'frontale' : 'posteriore/interna') + '…');
+    if (cameraStream) cameraStream.getTracks().forEach(t => t.stop());
+    cameraStream = null;
+    await startCamera();
+  }
+
+  function makePeer(id) {
+    if (peer) { try { peer.destroy(); } catch(e) {} peer = null; }
+    peer = new Peer(id || undefined, {
+      debug: 1,
+      config: {
+        iceServers: [
+          { urls: 'stun:stun.l.google.com:19302' },
+          { urls: 'stun:global.stun.twilio.com:3478' }
+        ]
+      }
+    });
+
+    peer.on('error', (err) => {
+      let msg = err && (err.message || err.type) ? (err.message || err.type) : String(err);
+      if (String(msg).includes('is taken') || (err && err.type === 'unavailable-id')) {
+        msg = 'Questa stanza sembra già creata. Se sei il secondo utente, premi “Entra nella stanza”.';
+      }
+      setStatus('Errore: ' + msg, 'bad');
+      enableMainButtons(true);
+    });
+
+    peer.on('disconnected', () => {
+      appendStatus('Segnalazione interrotta. Provo a riconnettere…');
+      try { peer.reconnect(); } catch(e) {}
+    });
+    peer.on('close', () => appendStatus('Collegamento PeerJS chiuso.'));
+    peer.on('connection', setupDataConnection);
+    return peer;
+  }
+
+  function enableMainButtons(enabled) {
+    hostBtn.disabled = !enabled;
+    joinBtn.disabled = !enabled;
+  }
+
+  function attachCallHandlers(call) {
+    currentCall = call;
+    hangBtn.disabled = false;
+    videoBtn.disabled = false;
+    startHealthMonitor();
+
+    call.on('stream', async (remoteStream) => {
+      remoteAudio.srcObject = remoteStream;
+      const remoteVideoTrack = remoteStream.getVideoTracks()[0];
+      if (remoteVideoTrack) {
+        remoteVideo.srcObject = new MediaStream([remoteVideoTrack]);
+        remotePlaceholder.classList.add('hidden');
+        remoteVideoTrack.onmute = () => remotePlaceholder.classList.remove('hidden');
+        remoteVideoTrack.onunmute = () => remotePlaceholder.classList.add('hidden');
+        remoteVideoTrack.onended = () => remotePlaceholder.classList.remove('hidden');
+      }
+      remoteAudio.muted = false;
+      try { await remoteAudio.play(); } catch(e) { appendStatus('Tocca il controllo audio se il browser blocca la riproduzione automatica.'); }
+      try { await remoteVideo.play(); } catch(e) {}
+      setStatus('Chiamata attiva. Ora potete parlare. Puoi attivare il video o inviare file.', 'ok');
+      await requestWakeLock();
+    });
+    call.on('close', () => {
+      setStatus('La chiamata è stata chiusa.', 'warn');
+      hangBtn.disabled = true;
+      videoBtn.disabled = true;
+      cameraBtn.disabled = true;
+      currentCall = null;
+      remoteAudio.srcObject = null;
+      remoteVideo.srcObject = null;
+      remotePlaceholder.classList.remove('hidden');
+      stopHealthMonitor();
+    });
+    call.on('error', (err) => setStatus('Errore nella chiamata: ' + (err.message || err), 'bad'));
+  }
+
+  function setupDataConnection(conn) {
+    if (!conn) return;
+    dataConn = conn;
+    dataConn.on('open', () => {
+      sendFileBtn.disabled = false;
+      setDot(fileDot, fileState, 'ok', 'File collegati');
+      setFileStatus('Canale file attivo. Puoi scegliere e inviare un file.', 'ok');
+    });
+    dataConn.on('data', handleIncomingData);
+    dataConn.on('close', () => {
+      sendFileBtn.disabled = true;
+      setDot(fileDot, fileState, 'warn', 'Canale file chiuso');
+      appendFileStatus('Canale file chiuso.');
+    });
+    dataConn.on('error', (err) => {
+      sendFileBtn.disabled = true;
+      setDot(fileDot, fileState, 'warn', 'Errore file');
+      appendFileStatus('Errore canale file: ' + (err.message || err));
+    });
+  }
+
+  function connectDataChannel(targetId) {
+    if (!peer) return;
+    try {
+      const conn = peer.connect(targetId, { reliable: true });
+      setupDataConnection(conn);
+    } catch(e) {
+      appendFileStatus('Non riesco ad aprire il canale file: ' + (e.message || e));
+    }
+  }
+
+  function safeName(name) {
+    return String(name || 'file-ricevuto').replace(/[\\/:*?"<>|]/g, '_').slice(0, 160);
+  }
+
+  async function sendSelectedFile() {
+    const file = fileInput.files && fileInput.files[0];
+    if (!file) { setFileStatus('Scegli prima un file.', 'warn'); return; }
+    if (!dataConn || dataConn.open !== true) { setFileStatus('Il canale file non è ancora attivo.', 'warn'); return; }
+    const id = Date.now() + '-' + Math.random().toString(16).slice(2);
+    const totalChunks = Math.ceil(file.size / CHUNK_SIZE) || 1;
+    dataConn.send({ type: 'file-meta', id, name: file.name, size: file.size, mime: file.type || 'application/octet-stream', totalChunks });
+    setFileStatus('Invio file: ' + file.name + '\n0%', 'warn');
+    sendFileBtn.disabled = true;
+    try {
+      for (let offset = 0, index = 0; offset < file.size; offset += CHUNK_SIZE, index++) {
+        const slice = file.slice(offset, Math.min(offset + CHUNK_SIZE, file.size));
+        const buffer = await slice.arrayBuffer();
+        dataConn.send({ type: 'file-chunk', id, index, buffer });
+        const pct = Math.round(((index + 1) / totalChunks) * 100);
+        setFileStatus('Invio file: ' + file.name + '\n' + pct + '%', 'warn');
+        await new Promise(r => setTimeout(r, 8));
+      }
+      dataConn.send({ type: 'file-end', id });
+      setFileStatus('File inviato: ' + file.name, 'ok');
+    } catch(e) {
+      setFileStatus('Invio interrotto: ' + (e.message || e), 'bad');
+    } finally {
+      sendFileBtn.disabled = !(dataConn && dataConn.open === true);
+    }
+  }
+
+  function handleIncomingData(data) {
+    if (!data || typeof data !== 'object') return;
+    if (data.type === 'file-meta') {
+      receiving.set(data.id, { meta: data, chunks: new Array(data.totalChunks), received: 0, bytes: 0 });
+      appendFileStatus('Ricezione file: ' + data.name + ' (0%)');
+      return;
+    }
+    if (data.type === 'file-chunk') {
+      const rec = receiving.get(data.id);
+      if (!rec) return;
+      rec.chunks[data.index] = data.buffer;
+      rec.received++;
+      rec.bytes += data.buffer && data.buffer.byteLength ? data.buffer.byteLength : 0;
+      const pct = Math.round((rec.received / rec.meta.totalChunks) * 100);
+      setFileStatus('Ricezione file: ' + rec.meta.name + '\n' + pct + '%', 'warn');
+      return;
+    }
+    if (data.type === 'file-end') {
+      const rec = receiving.get(data.id);
+      if (!rec) return;
+      const blob = new Blob(rec.chunks, { type: rec.meta.mime || 'application/octet-stream' });
+      const url = URL.createObjectURL(blob);
+      const row = document.createElement('div');
+      row.className = 'fileRow';
+      const a = document.createElement('a');
+      a.className = 'download';
+      a.href = url;
+      a.download = safeName(rec.meta.name);
+      a.textContent = 'Scarica: ' + rec.meta.name;
+      const info = document.createElement('div');
+      info.className = 'small';
+      info.textContent = 'Dimensione ricevuta: ' + formatBytes(blob.size);
+      row.appendChild(a);
+      row.appendChild(info);
+      receivedFiles.prepend(row);
+      receiving.delete(data.id);
+      setFileStatus('File ricevuto: ' + rec.meta.name + '\nUsa il link qui sotto per scaricarlo.', 'ok');
+    }
+  }
+
+  function formatBytes(bytes) {
+    if (bytes < 1024) return bytes + ' B';
+    if (bytes < 1024*1024) return (bytes/1024).toFixed(1) + ' KB';
+    if (bytes < 1024*1024*1024) return (bytes/1024/1024).toFixed(1) + ' MB';
+    return (bytes/1024/1024/1024).toFixed(2) + ' GB';
+  }
+
+  async function startHost() {
+    room = normalizeRoom(roomInput.value);
+    roomInput.value = room;
+    role = 'host';
+    enableMainButtons(false);
+    setStatus('Richiedo il permesso del microfono…');
+    try {
+      const stream = await getLocalMediaBase();
+      const p = makePeer(hostId(room));
+      p.on('open', async () => {
+        const link = currentInviteLink();
+        inviteLink.textContent = link;
+        inviteArea.classList.remove('hidden');
+        const copied = await copyText(link);
+        setStatus('Stanza creata: ' + room + '\n' +
+          (copied ? 'Ho copiato il link invito negli appunti. Invialo all’altra persona.' : 'Copia o comunica all’altra persona il nome stanza: ' + room) + '\n' +
+          'Attendo che l’altra persona entri…', 'ok');
+      });
+      p.on('call', (call) => {
+        setStatus('Chiamata in arrivo. Rispondo automaticamente…', 'ok');
+        call.answer(stream);
+        attachCallHandlers(call);
+      });
+    } catch(e) {
+      setStatus('Non riesco ad avviare la stanza: ' + e.message, 'bad');
+      enableMainButtons(true);
+    }
+  }
+
+  async function joinRoom() {
+    room = normalizeRoom(roomInput.value);
+    roomInput.value = room;
+    role = 'guest';
+    enableMainButtons(false);
+    setStatus('Richiedo il permesso del microfono…');
+    try {
+      const stream = await getLocalMediaBase();
+      const p = makePeer();
+      p.on('open', () => {
+        setStatus('Entro nella stanza: ' + room + '\nChiamo l’altro utente…');
+        const target = hostId(room);
+        connectDataChannel(target);
+        const call = p.call(target, stream);
+        attachCallHandlers(call);
+      });
+    } catch(e) {
+      setStatus('Non riesco a entrare nella stanza: ' + e.message, 'bad');
+      enableMainButtons(true);
+    }
+  }
+
+  function hangUp() {
+    stopHealthMonitor();
+    if (currentCall) { try { currentCall.close(); } catch(e) {} }
+    if (dataConn) { try { dataConn.close(); } catch(e) {} dataConn = null; }
+    if (peer) { try { peer.destroy(); } catch(e) {} peer = null; }
+    if (cameraStream) { cameraStream.getTracks().forEach(t => t.stop()); cameraStream = null; }
+    if (localStream) { localStream.getTracks().forEach(t => t.stop()); localStream = null; }
+    if (blankVideoStream) { blankVideoStream.getTracks().forEach(t => t.stop()); blankVideoStream = null; }
+    if (wakeLock) { try { wakeLock.release(); } catch(e) {} wakeLock = null; }
+    remoteAudio.srcObject = null;
+    remoteVideo.srcObject = null;
+    localVideo.srcObject = null;
+    remotePlaceholder.classList.remove('hidden');
+    localPlaceholder.classList.remove('hidden');
+    hangBtn.disabled = true; muteBtn.disabled = true; videoBtn.disabled = true; cameraBtn.disabled = true; sendFileBtn.disabled = true;
+    muted = false; videoEnabled = false; facingMode = 'user';
+    muteBtn.textContent = 'Disattiva microfono';
+    videoBtn.textContent = 'Attiva video';
+    enableMainButtons(true);
+    setDot(micDot, micState, 'bad', 'Microfono non avviato');
+    setDot(wakeDot, wakeState, 'bad', 'Anti-standby non attivo');
+    setDot(fileDot, fileState, 'bad', 'File non collegati');
+    setFileStatus('Nessun file in trasferimento.');
+    setStatus('Chiamata chiusa. Puoi creare o entrare di nuovo in una stanza.', 'warn');
+  }
+
+  function startHealthMonitor() {
+    stopHealthMonitor();
+    healthTimer = setInterval(async () => {
+      const parts = [];
+      if (peer && peer.disconnected) parts.push('segnalazione disconnessa');
+      if (currentCall && currentCall.peerConnection) {
+        const pc = currentCall.peerConnection;
+        parts.push('ICE: ' + pc.iceConnectionState);
+        if (pc.iceConnectionState === 'failed' || pc.iceConnectionState === 'disconnected') {
+          appendStatus('La connessione WebRTC risulta ' + pc.iceConnectionState + '. Riporta la pagina in primo piano; se non riparte, chiudi e rientra nella stanza.');
+        }
+      }
+      if (document.visibilityState !== 'visible') parts.push('pagina in background');
+      const msg = parts.join(' | ');
+      if (msg && msg !== lastHealth) { lastHealth = msg; }
+      if (wantWakeLock && !wakeLock && document.visibilityState === 'visible') await requestWakeLock();
+    }, 5000);
+  }
+
+  function stopHealthMonitor() {
+    if (healthTimer) clearInterval(healthTimer);
+    healthTimer = null;
+    lastHealth = '';
+  }
+
+  hostBtn.addEventListener('click', startHost);
+  joinBtn.addEventListener('click', joinRoom);
+  wakeBtn.addEventListener('click', async () => {
+    const ok = await requestWakeLock();
+    if (ok) setStatus('Anti-standby attivato. Il telefono dovrebbe evitare di spegnere lo schermo finché questa pagina resta visibile.', 'ok');
+  });
+  copyLinkBtn.addEventListener('click', async () => {
+    const link = currentInviteLink(); inviteLink.textContent = link; inviteArea.classList.remove('hidden');
+    const ok = await copyText(link);
+    setStatus(ok ? 'Link copiato negli appunti.' : 'Non sono riuscito a copiare automaticamente. Copia il link visualizzato.', ok ? 'ok' : 'warn');
+  });
+  muteBtn.addEventListener('click', () => {
+    if (!localStream) return;
+    muted = !muted;
+    localStream.getAudioTracks().forEach(t => t.enabled = !muted);
+    muteBtn.textContent = muted ? 'Riattiva microfono' : 'Disattiva microfono';
+    setDot(micDot, micState, muted ? 'warn' : 'ok', muted ? 'Microfono disattivato' : 'Microfono attivo');
+    setStatus(muted ? 'Microfono disattivato.' : 'Microfono riattivato.', muted ? 'warn' : 'ok');
+  });
+  videoBtn.addEventListener('click', async () => {
+    if (videoEnabled) await stopCamera(); else await startCamera();
+  });
+  cameraBtn.addEventListener('click', switchCamera);
+  sendFileBtn.addEventListener('click', sendSelectedFile);
+  hangBtn.addEventListener('click', hangUp);
+  themeBtn.addEventListener('click', () => {
+    document.body.classList.toggle('light');
+    themeBtn.textContent = document.body.classList.contains('light') ? 'Tema scuro' : 'Tema chiaro';
+  });
+
+  document.addEventListener('visibilitychange', async () => {
+    if (document.visibilityState === 'visible') {
+      setDot(visDot, visState, 'ok', 'Pagina visibile');
+      try { await remoteAudio.play(); } catch(e) {}
+      try { await remoteVideo.play(); } catch(e) {}
+      if (wantWakeLock) await requestWakeLock();
+      if (peer && peer.disconnected) { try { peer.reconnect(); } catch(e) {} }
+      if (currentCall) appendStatus('Pagina tornata in primo piano. Ho provato a riattivare audio, video e anti-standby.');
+    } else {
+      setDot(visDot, visState, 'warn', 'Pagina in background');
+      appendStatus('Attenzione: pagina in background. Su Android l’altro utente potrebbe non sentirti/vederti o la chiamata potrebbe cadere.');
+    }
+  });
+
+  window.addEventListener('beforeunload', () => {
+    try { if (currentCall) currentCall.close(); } catch(e) {}
+    try { if (dataConn) dataConn.close(); } catch(e) {}
+    try { if (peer) peer.destroy(); } catch(e) {}
+    try { if (cameraStream) cameraStream.getTracks().forEach(t => t.stop()); } catch(e) {}
+    try { if (localStream) localStream.getTracks().forEach(t => t.stop()); } catch(e) {}
+    try { if (blankVideoStream) blankVideoStream.getTracks().forEach(t => t.stop()); } catch(e) {}
+    try { if (wakeLock) wakeLock.release(); } catch(e) {}
+  });
+})();
+</script>
+
+<script>
+// ── Tab navigation ──────────────────────────────────────────────
+(function() {
+  const tabs   = document.querySelectorAll('.tab');
+  const panels = document.querySelectorAll('.panel');
+
+  function activateTab(name) {
+    tabs.forEach(t => t.classList.toggle('active', t.dataset.tab === name));
+    panels.forEach(p => p.classList.toggle('active', p.id === 'panel-' + name));
+  }
+
+  tabs.forEach(t => t.addEventListener('click', () => activateTab(t.dataset.tab)));
+
+  // Mirror status bar log into the dedicated "Chiamata" card for visibility from any tab
+  const mainStatus = document.getElementById('status');
+  const callStatus = document.getElementById('callStatus');
+  if (mainStatus && callStatus) {
+    const obs = new MutationObserver(() => {
+      callStatus.textContent = mainStatus.textContent;
+      callStatus.className   = 'log ' + (mainStatus.className.replace('sb-text','').trim());
+    });
+    obs.observe(mainStatus, { characterData: true, childList: true, subtree: true, attributes: true });
+  }
+
+  // Mirror sb-dot state from status text class
+  const sbDot = document.getElementById('sbDot');
+  if (mainStatus && sbDot) {
+    const dotObs = new MutationObserver(() => {
+      const cls = mainStatus.className;
+      sbDot.className = 'sb-dot' + (cls.includes('ok') ? ' ok' : cls.includes('bad') ? ' bad' : cls.includes('warn') ? ' warn' : '');
+    });
+    dotObs.observe(mainStatus, { attributes: true });
+  }
+
+  // Theme toggle: default light, toggle to dark
+  const themeBtn = document.getElementById('themeBtn');
+  themeBtn.addEventListener('click', () => {
+    document.body.classList.toggle('dark');
+    themeBtn.textContent = document.body.classList.contains('dark') ? '☀️ Chiaro' : '🌙 Scuro';
+  });
+
+  // ── Fullscreen logic ────────────────────────────────────────────
+  function requestFS(el) {
+    if (el.requestFullscreen)            return el.requestFullscreen();
+    if (el.webkitRequestFullscreen)      return el.webkitRequestFullscreen();
+    if (el.mozRequestFullScreen)         return el.mozRequestFullScreen();
+    if (el.msRequestFullscreen)          return el.msRequestFullscreen();
+  }
+  function exitFS() {
+    if (document.exitFullscreen)         return document.exitFullscreen();
+    if (document.webkitExitFullscreen)   return document.webkitExitFullscreen();
+    if (document.mozCancelFullScreen)    return document.mozCancelFullScreen();
+    if (document.msExitFullscreen)       return document.msExitFullscreen();
+  }
+  function isFS() {
+    return !!(document.fullscreenElement || document.webkitFullscreenElement ||
+              document.mozFullScreenElement || document.msFullscreenElement);
+  }
+
+  const FS_ENTER = '⛶';   // expand icon
+  const FS_EXIT  = '✕';   // close / exit icon
+
+  function setupFsBtn(btnId, boxId) {
+    const btn = document.getElementById(btnId);
+    const box = document.getElementById(boxId);
+    if (!btn || !box) return;
+
+    btn.addEventListener('click', (e) => {
+      e.stopPropagation();
+      if (isFS() && (document.fullscreenElement === box ||
+                     document.webkitFullscreenElement === box)) {
+        exitFS();
+      } else {
+        requestFS(box);
+      }
+    });
+
+    // Update icon when fullscreen changes
+    const updateIcon = () => {
+      const active = document.fullscreenElement === box ||
+                     document.webkitFullscreenElement === box;
+      btn.textContent = active ? FS_EXIT : FS_ENTER;
+      btn.title = active ? 'Esci dallo schermo intero' : 'Schermo intero';
+    };
+    document.addEventListener('fullscreenchange', updateIcon);
+    document.addEventListener('webkitfullscreenchange', updateIcon);
+  }
+
+  setupFsBtn('fsLocalBtn',  'localVideoBox');
+  setupFsBtn('fsRemoteBtn', 'remoteVideoBox');
+
+  // Remap old class names that JS writes to the status element
+  // Original JS calls: statusEl.className = 'status ' + cls
+  // We need: 'sb-text ' + cls
+  const origStatus = document.getElementById('status');
+  const _setAttr = Element.prototype.setAttribute;
+  // Intercept className assignments on #status
+  const origDescriptor = Object.getOwnPropertyDescriptor(Element.prototype, 'className');
+  const origSet = origDescriptor.set;
+  Object.defineProperty(origStatus, 'className', {
+    get() { return origDescriptor.get.call(this); },
+    set(v) {
+      // JS sets 'status ok', 'status bad', etc — remap to sb-text
+      const mapped = v.replace(/^status\s*/, 'sb-text ').trim();
+      origSet.call(this, mapped);
+    },
+    configurable: true
+  });
+})();
+</script>
+
+</body>
+</html>
